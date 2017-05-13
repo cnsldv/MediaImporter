@@ -12,13 +12,13 @@
 
 #define VIDEO_DB "ux0:mms/video/AVContent.db"
 
-const char *select_content_count_sql = "SELECT COUNT(*) FROM tbl_VPContent WHERE content_path=?";
-const char *select_content_sql = "SELECT mrid, content_path, title FROM tbl_VPContent";
-const char *delete_content_sql = "DELETE FROM tbl_VPContent WHERE mrid=?";
-const char *delete_content2_sql = "DELETE FROM tbl_Video WHERE base_id=?";
-const char *delete_all_sql = "DELETE FROM tbl_VPContent";
-const char *delete_all2_sql = "DELETE FROM tbl_Video";
-const char *insert_video_sql = "INSERT INTO tbl_VPContent (\
+static const char *select_content_count_sql = "SELECT COUNT(*) FROM tbl_VPContent WHERE content_path=?";
+static const char *select_content_sql = "SELECT mrid, content_path, title FROM tbl_VPContent";
+static const char *delete_content_sql = "DELETE FROM tbl_VPContent WHERE mrid=?";
+static const char *delete_content2_sql = "DELETE FROM tbl_Video WHERE base_id=?";
+static const char *delete_all_sql = "DELETE FROM tbl_VPContent";
+static const char *delete_all2_sql = "DELETE FROM tbl_Video";
+static const char *insert_video_sql = "INSERT INTO tbl_VPContent (\
 content_type, \
 duration, \
 size, \
@@ -31,10 +31,10 @@ content_path, \
 content_path_ext, \
 created_time_for_sort) \
 VALUES (5,?,?,2,datetime('now'),datetime('now'),?,4,?,?,datetime('now'))";
-const char *insert_video2_sql = "INSERT INTO tbl_Video (base_id) VALUES (LAST_INSERT_ROWID())";
-const char *select_empty_icons_sql = "SELECT content_path,title FROM tbl_VPContent \
+static const char *insert_video2_sql = "INSERT INTO tbl_Video (base_id) VALUES (LAST_INSERT_ROWID())";
+static const char *select_empty_icons_sql = "SELECT content_path,title FROM tbl_VPContent \
 WHERE ifnull(icon_path, '') = ''";
-const char *update_icon_path_sql = "UPDATE tbl_VPContent SET icon_path=?,icon_codec_type=17 \
+static const char *update_icon_path_sql = "UPDATE tbl_VPContent SET icon_path=?,icon_codec_type=17 \
 WHERE content_path=?";
 
 
@@ -151,7 +151,7 @@ fail:
 	return ret;
 }
 
-static int sql_delete_video(sqlite3 *db, int mrid)
+static int sql_delete_video(sqlite3 *db, int64_t mrid)
 {
 	int ret = 0;
 	sqlite3_stmt *stmt, *stmt2;
@@ -164,7 +164,7 @@ static int sql_delete_video(sqlite3 *db, int mrid)
 		goto fail;
 	}
 
-	ret = sqlite3_bind_int(stmt, 1, mrid);
+	ret = sqlite3_bind_int64(stmt, 1, mrid);
 	if (ret != SQLITE_OK) {
 		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
 		goto fail;
@@ -179,7 +179,7 @@ static int sql_delete_video(sqlite3 *db, int mrid)
 		goto fail;
 	}
 
-	ret = sqlite3_bind_int(stmt2, 1, mrid);
+	ret = sqlite3_bind_int64(stmt2, 1, mrid);
 	if (ret != SQLITE_OK) {
 		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
 		goto fail;
@@ -192,7 +192,7 @@ fail:
 	return ret;
 }
 
-char *concat_path(const char *parent, const char *child) {
+static char *concat_path(const char *parent, const char *child) {
 	int len;
 	char *new_path = NULL;
 
@@ -372,7 +372,7 @@ void clean_videos(void)
 		goto fail;
 	}
 	while (sqlite3_step(stmt) == SQLITE_ROW) {
-		int mrid = sqlite3_column_int(stmt, 0);
+		int64_t mrid = sqlite3_column_int(stmt, 0);
 		const char *path = sqlite3_column_text(stmt, 1);
 		const char *title = sqlite3_column_text(stmt, 2);
 
@@ -380,6 +380,9 @@ void clean_videos(void)
 		if (!testfile) {
 			sql_delete_video(db, mrid);
 			removed++;
+		}
+		else {
+			fclose(testfile);
 		}
 	}
 fail:
