@@ -150,7 +150,6 @@ static int sql_delete_music(sqlite3 *db, int64_t mrid)
 	sqlite3_stmt *stmt, *stmt2;
 	const char *sql = delete_content_sql;
 
-	sqlite3_exec(db, "BEGIN", 0, 0, 0);
 	ret = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
 	if (ret != SQLITE_OK) {
 		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
@@ -166,7 +165,6 @@ static int sql_delete_music(sqlite3 *db, int64_t mrid)
 	sqlite3_step(stmt);
 	sqlite3_finalize(stmt);
 
-	sqlite3_exec(db, "COMMIT", 0, 0, 0);
 fail:
 	return ret;
 }
