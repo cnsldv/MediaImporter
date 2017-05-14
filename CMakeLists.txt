@@ -22,7 +22,9 @@ add_executable(${PROJECT_NAME}.elf
 	src/debugScreenFont.c
 	src/vita_sqlite.c
 	src/video.c
+	src/music.c
 	src/mp4utils.c
+	src/id3.c
 	sqlite-3.6.23.1/sqlite3.c
 )
 
@@ -30,6 +32,7 @@ target_link_libraries(${PROJECT_NAME}.elf
 	-lSceDisplay_stub
 	-lSceCtrl_stub
 	-lSceSysmodule_stub
+	-lSceAppUtil_stub
 )
 
 add_custom_target(${PROJECT_NAME}.vpk ALL

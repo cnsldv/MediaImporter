@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #include <psp2/ctrl.h>
+#include <psp2/apputil.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/dirent.h>
 #include <psp2/kernel/threadmgr.h>
@@ -16,8 +17,10 @@
 #include "debugScreen.h"
 
 #include "video.h"
+#include "music.h"
 
 const char *video_dirs[] = {"ux0:/video", NULL};;
+const char *music_dirs[] = {"ux0:/music", NULL};;
 
 static unsigned buttons[] = {
 	SCE_CTRL_SELECT,
@@ -71,7 +74,14 @@ int main(void)
 	int idx;
 	int done = 0;
 
+	SceAppUtilInitParam init_param;
+	SceAppUtilBootParam boot_param;
+	memset(&init_param, 0, sizeof(SceAppUtilInitParam));
+	memset(&boot_param, 0, sizeof(SceAppUtilBootParam));
+
+	sceAppUtilInit(&init_param, &boot_param);
 	psvDebugScreenInit();
+	sceAppUtilMusicMount();
 
 	while (!done) {
 		menu();
@@ -79,16 +89,23 @@ int main(void)
 		switch (key) {
 		case SCE_CTRL_CROSS:
 			menu();
-			printf("Adding new videos, please wait\n");
+
+			printf("Managing videos, please wait\n");
 			idx = 0;
 			while (video_dirs[idx]) {
 				add_videos(video_dirs[idx]);
 				idx++;
 			}
-			printf("Removing missing videos\n");
 			clean_videos();
-			printf("Setting icons\n");
 			update_video_icons();
+
+			printf("Managing music, please wait\n");
+			idx = 0;
+			while (music_dirs[idx]) {
+				add_music(music_dirs[idx]);
+				idx++;
+			}
+			clean_music();
 			psvDebugScreenSetFgColor(COLOR_GREEN);
 			printf("Done.\n");
 			psvDebugScreenSetFgColor(COLOR_WHITE);
@@ -100,6 +117,8 @@ int main(void)
 			menu();
 			printf("Removing all videos\n");
 			empty_videos();
+			printf("Removing all music\n");
+			empty_music();
 			psvDebugScreenSetFgColor(COLOR_GREEN);
 			printf("Done.\n");
 			psvDebugScreenSetFgColor(COLOR_WHITE);
@@ -116,6 +135,7 @@ int main(void)
 		}
 	}
 
+	sceAppUtilMusicUmount();
 	return 0;
 }
 
