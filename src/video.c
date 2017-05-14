@@ -207,13 +207,12 @@ static char *concat_path(const char *parent, const char *child) {
 	return new_path;
 }
 
-static int add_videos_int(sqlite3 *db, const char *dir)
+static int add_videos_int(sqlite3 *db, const char *dir, int added)
 {
 	SceUID did;
 	SceIoDirent dinfo;
 	int err = 0;
 	char *new_path = NULL;
-	int added = 0;
 
 	did = sceIoDopen(dir);
 	if (did < 0) {
@@ -225,7 +224,7 @@ static int add_videos_int(sqlite3 *db, const char *dir)
 		new_path = concat_path(dir, dinfo.d_name);
 		if (SCE_S_ISDIR(dinfo.d_stat.st_mode)) {
 			// recursion, ewww
-			added += add_videos_int(db, new_path);
+			added = add_videos_int(db, new_path, added);
 		}
 		else {
 			int l = strlen(dinfo.d_name);
@@ -237,6 +236,7 @@ static int add_videos_int(sqlite3 *db, const char *dir)
 					uint32_t dur = get_mp4_duration(new_path);
 					sql_insert_video(db, new_path, dinfo.d_stat.st_size, dur);
 					added++;
+					printf("Added %d videos\r", added);
 				}
 			}
 		}
@@ -259,7 +259,9 @@ void add_videos(const char *dir)
 		goto fail;
 	}
 
-	added = add_videos_int(db, dir);
+	sqlite3_exec(db, "BEGIN", 0, 0, 0);
+	added = add_videos_int(db, dir, 0);
+	sqlite3_exec(db, "COMMIT", 0, 0, 0);
 	printf("Added %d videos\n", added);
 fail:
 	sqlite3_close(db);
@@ -315,6 +317,7 @@ void update_video_icons(void)
 		goto fail;
 	}
 
+	sqlite3_exec(db, "BEGIN", 0, 0, 0);
 	sqlite3_stmt *stmt;
 	const char *sql = select_empty_icons_sql;
 	ret = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
@@ -351,6 +354,7 @@ void update_video_icons(void)
 		}
 	}
 fail:
+	sqlite3_exec(db, "COMMIT", 0, 0, 0);
 	sqlite3_close(db);
 }
 
@@ -364,6 +368,7 @@ void clean_videos(void)
 		goto fail;
 	}
 
+	sqlite3_exec(db, "BEGIN", 0, 0, 0);
 	sqlite3_stmt *stmt;
 	const char *sql = select_content_sql;
 	ret = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
@@ -380,6 +385,7 @@ void clean_videos(void)
 		if (!testfile) {
 			sql_delete_video(db, mrid);
 			removed++;
+			printf("Removed %d videos\r", removed);
 		}
 		else {
 			fclose(testfile);
@@ -389,6 +395,7 @@ fail:
 	if (stmt) {
 		sqlite3_finalize(stmt);
 	}
+	sqlite3_exec(db, "COMMIT", 0, 0, 0);
 	sqlite3_close(db);
 
 	printf("Removed %d videos\n", removed);

@@ -150,6 +150,7 @@ static int sql_delete_music(sqlite3 *db, int64_t mrid)
 	sqlite3_stmt *stmt, *stmt2;
 	const char *sql = delete_content_sql;
 
+	sqlite3_exec(db, "BEGIN", 0, 0, 0);
 	ret = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
 	if (ret != SQLITE_OK) {
 		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
@@ -165,6 +166,7 @@ static int sql_delete_music(sqlite3 *db, int64_t mrid)
 	sqlite3_step(stmt);
 	sqlite3_finalize(stmt);
 
+	sqlite3_exec(db, "COMMIT", 0, 0, 0);
 fail:
 	return ret;
 }
@@ -184,14 +186,13 @@ static char *concat_path(const char *parent, const char *child) {
 	return new_path;
 }
 
-static int add_music_int(sqlite3 *db, const char *dir)
+static int add_music_int(sqlite3 *db, const char *dir, int added)
 {
 	SceUID did;
 	SceIoDirent dinfo;
 	SceIoStat stat;
 	int err = 0;
 	char *new_path = NULL;
-	int added = 0;
 
 	sceIoGetstat(dir, &stat);
 
@@ -206,7 +207,7 @@ static int add_music_int(sqlite3 *db, const char *dir)
 		new_path = concat_path(dir, dinfo.d_name);
 		if (SCE_S_ISDIR(dinfo.d_stat.st_mode)) {
 			// recursion, ewww
-			added += add_music_int(db, new_path);
+			added = add_music_int(db, new_path, added);
 		}
 		else {
 			int l = strlen(dinfo.d_name);
@@ -217,6 +218,7 @@ static int add_music_int(sqlite3 *db, const char *dir)
 				if (c == 0) {
 					sql_insert_music(db, new_path, dinfo.d_stat.st_size);
 					added++;
+					printf("Added %d tracks\r", added);
 				}
 			}
 		}
@@ -239,7 +241,8 @@ void add_music(const char *dir)
 		goto fail;
 	}
 
-	added = add_music_int(db, dir);
+	sqlite3_exec(db, "BEGIN", 0, 0, 0);
+	added = add_music_int(db, dir, 0);
 	printf("Added %d tracks\n", added);
 
 	sqlite3_stmt *stmt;
@@ -250,6 +253,7 @@ void add_music(const char *dir)
 		goto fail;
 	}
 	sqlite3_step(stmt);
+	sqlite3_exec(db, "COMMIT", 0, 0, 0);
 fail:
 	sqlite3_close(db);
 }
@@ -264,6 +268,7 @@ void clean_music(void)
 		goto fail;
 	}
 
+	sqlite3_exec(db, "BEGIN", 0, 0, 0);
 	sqlite3_stmt *stmt;
 	const char *sql = select_content_sql;
 	ret = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
@@ -278,10 +283,9 @@ void clean_music(void)
 
 		FILE *testfile = fopen(path, "rb");
 		if (!testfile) {
-			printf("Delete %llu %s\n", mrid, path);
-
 			sql_delete_music(db, mrid);
 			removed++;
+			printf("Removed %d tracks\r", removed);
 		}
 		else {
 			fclose(testfile);
@@ -291,6 +295,7 @@ fail:
 	if (stmt) {
 		sqlite3_finalize(stmt);
 	}
+	sqlite3_exec(db, "COMMIT", 0, 0, 0);
 	sqlite3_close(db);
 
 	printf("Removed %d tracks\n", removed);
