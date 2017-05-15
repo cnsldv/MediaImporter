@@ -73,6 +73,7 @@ int main(void)
 	int key = 0;
 	int idx;
 	int done = 0;
+	int madd = 0, mrem = 0;
 
 	SceAppUtilInitParam init_param;
 	SceAppUtilBootParam boot_param;
@@ -102,10 +103,13 @@ int main(void)
 			printf("Managing music, please wait\n");
 			idx = 0;
 			while (music_dirs[idx]) {
-				add_music(music_dirs[idx]);
+				madd += add_music(music_dirs[idx]);
 				idx++;
 			}
-			clean_music();
+			mrem = clean_music();
+			if (madd > 0 || mrem > 0) {
+				refresh_music_db();
+			}
 			psvDebugScreenSetFgColor(COLOR_GREEN);
 			printf("Done.\n");
 			psvDebugScreenSetFgColor(COLOR_WHITE);

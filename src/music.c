@@ -229,7 +229,7 @@ static int add_music_int(sqlite3 *db, const char *dir, int added)
 	return added;
 }
 
-void add_music(const char *dir)
+int add_music(const char *dir)
 {
 	int added;
 	sqlite3 *db;
@@ -242,21 +242,13 @@ void add_music(const char *dir)
 	sqlite3_exec(db, "BEGIN", 0, 0, 0);
 	added = add_music_int(db, dir, 0);
 	printf("Added %d tracks\n", added);
-
-	sqlite3_stmt *stmt;
-	const char *sql = refresh_db_sql;
-	ret = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
-	if (ret != SQLITE_OK) {
-		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
-		goto fail;
-	}
-	sqlite3_step(stmt);
-	sqlite3_exec(db, "COMMIT", 0, 0, 0);
 fail:
+	sqlite3_exec(db, "COMMIT", 0, 0, 0);
 	sqlite3_close(db);
+	return added;
 }
 
-void clean_music(void)
+int clean_music(void)
 {
 	int removed = 0;
 	sqlite3 *db;
@@ -297,6 +289,7 @@ fail:
 	sqlite3_close(db);
 
 	printf("Removed %d tracks\n", removed);
+	return removed;
 }
 
 void empty_music(void)
@@ -321,6 +314,29 @@ fail:
 	if (stmt) {
 		sqlite3_finalize(stmt);
 	}
+	sqlite3_close(db);
+}
+
+void refresh_music_db(void)
+{
+	sqlite3 *db;
+	int ret = sqlite3_open(MUSIC_DB, &db);
+	if (ret) {
+		printf("Failed to open the database: %s\n", sqlite3_errmsg(db));
+		goto fail;
+	}
+
+	sqlite3_stmt *stmt;
+	const char *sql = refresh_db_sql;
+	ret = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+	if (ret != SQLITE_OK) {
+		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
+		goto fail;
+	}
+	sqlite3_step(stmt);
+	sqlite3_finalize(stmt);
+
+fail:
 	sqlite3_close(db);
 }
 
