@@ -39,6 +39,9 @@ Requires Vita SDK and cmake. cd to the top level dir and run
 
 ## Changelog
 
+### 0.91
+* adds video folders using top level folder name, only works on inserting video so clear the database first if you have videos from an earlier version
+
 ### 0.9
 * adds import of music from ux0:/music
 * performance boost
