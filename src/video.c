@@ -32,11 +32,65 @@ content_path_ext, \
 created_time_for_sort) \
 VALUES (5,?,?,2,datetime('now'),datetime('now'),?,4,?,?,datetime('now'))";
 static const char *insert_video2_sql = "INSERT INTO tbl_Video (base_id) VALUES (LAST_INSERT_ROWID())";
+
 static const char *select_empty_icons_sql = "SELECT content_path,title FROM tbl_VPContent \
 WHERE ifnull(icon_path, '') = ''";
 static const char *update_icon_path_sql = "UPDATE tbl_VPContent SET icon_path=?,icon_codec_type=17 \
 WHERE content_path=?";
 
+static const char *select_contentlist_sql = "SELECT mrid FROM tbl_AVContentList WHERE title=?";
+static const char *insert_contentlist_sql = "INSERT INTO tbl_AVContentList (type, title, title_for_sort) VALUES (4,?,?)";
+static const char *insert_contentitem_sql = "INSERT INTO tbl_AVContentItem (list_id, item_id) VALUES (?,LAST_INSERT_ROWID())";
+static const char *delete_contentitem_sql = "DELETE FROM tbl_AVContentItem WHERE item_id=?";
+static const char *delete_all_contentlist_sql = "DELETE FROM tbl_AVContentList";
+static const char *delete_all_contentitem_sql = "DELETE FROM tbl_AVContentItem";
+static const char *delete_empty_contentlist_sql = "DELETE FROM tbl_AVContentList WHERE mrid NOT IN \
+	(SELECT list_id FROM tbl_AVContentItem)";
+
+static int sql_exec(sqlite3 *db, const char *sql)
+{
+	int ret = 0;
+	sqlite3_stmt *stmt;
+	ret = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+	if (ret != SQLITE_OK) {
+		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
+		goto fail;
+	}
+	sqlite3_step(stmt);
+
+fail:
+	if (stmt) {
+		sqlite3_finalize(stmt);
+	}
+
+	return ret;
+}
+
+static int sql_exec_i64(sqlite3 *db, const char *sql, int64_t i)
+{
+	int ret = 0;
+	sqlite3_stmt *stmt;
+	ret = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+	if (ret != SQLITE_OK) {
+		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
+		goto fail;
+	}
+
+	ret = sqlite3_bind_int64(stmt, 1, i);
+	if (ret != SQLITE_OK) {
+		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
+		goto fail;
+	}
+
+	sqlite3_step(stmt);
+
+fail:
+	if (stmt) {
+		sqlite3_finalize(stmt);
+	}
+
+	return ret;
+}
 
 static int sql_get_count(sqlite3 *db, const char *sql, const char* fname) {
 	int cnt = 0;
@@ -62,7 +116,63 @@ fail:
 	return 0;
 }
 
-static int sql_insert_video(sqlite3 *db, const char *path, size_t size, uint32_t duration)
+static int64_t sql_get_listid(sqlite3 *db, const char *name)
+{
+	int ret = 0;
+	int loop = 0;
+	sqlite3_stmt *stmt, *stmt2;
+	const char *sql = select_contentlist_sql;
+	const char *sql2 = insert_contentlist_sql;
+
+	do {
+		ret = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+		if (ret != SQLITE_OK) {
+			printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
+			goto fail;
+		}
+
+		ret = sqlite3_bind_text(stmt, 1, name, strlen(name), NULL);
+		if (ret != SQLITE_OK) {
+			printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
+			goto fail;
+		}
+
+		if (sqlite3_step(stmt) == SQLITE_ROW) {
+			int64_t id = sqlite3_column_int64(stmt, 0);
+			sqlite3_finalize(stmt);
+			return id;
+		}
+		sqlite3_finalize(stmt);
+
+		ret = sqlite3_prepare_v2(db, sql2, -1, &stmt2, 0);
+		if (ret != SQLITE_OK) {
+			printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
+			goto fail;
+		}
+
+		ret = sqlite3_bind_text(stmt2, 1, name, strlen(name), NULL);
+		if (ret != SQLITE_OK) {
+			printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
+			goto fail;
+		}
+
+		ret = sqlite3_bind_text(stmt2, 2, name, strlen(name), NULL);
+		if (ret != SQLITE_OK) {
+			printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
+			goto fail;
+		}
+
+		sqlite3_step(stmt2);
+		sqlite3_finalize(stmt2);
+		loop++;
+	}
+	while (loop < 2);
+
+fail:
+	return ret;
+}
+
+static int sql_insert_video(sqlite3 *db, const char *path, size_t size, uint32_t duration, const char *list)
 {
 	int ret = 0;
 	sqlite3_stmt *stmt;
@@ -70,6 +180,7 @@ static int sql_insert_video(sqlite3 *db, const char *path, size_t size, uint32_t
 
 	const char *title, *ext;
 	int path_len, title_len, ext_len, pos;
+	int64_t listid = 0;
 
 	pos = 0;
 	title = ext = path;
@@ -87,6 +198,10 @@ static int sql_insert_video(sqlite3 *db, const char *path, size_t size, uint32_t
 			break;
 		}
 		pos++;
+	}
+
+	if (list) {
+		listid = sql_get_listid(db, list);
 	}
 
 	path_len = pos;
@@ -136,16 +251,36 @@ static int sql_insert_video(sqlite3 *db, const char *path, size_t size, uint32_t
 	sqlite3_step(stmt);
 	sqlite3_finalize(stmt);
 
-	sqlite3_stmt *stmt2;
-	const char *sql2 = insert_video2_sql;
-	ret = sqlite3_prepare_v2(db, sql2, -1, &stmt2, 0);
+	if (list) {
+		sqlite3_stmt *stmt2;
+		const char *sql2 = insert_contentitem_sql;
+
+		ret = sqlite3_prepare_v2(db, sql2, -1, &stmt2, 0);
+		if (ret != SQLITE_OK) {
+			printf("Failed to execute %s, error %s\n", sql2, sqlite3_errmsg(db));
+			goto fail;
+		}
+
+		ret = sqlite3_bind_int64(stmt2, 1, listid);
+		if (ret != SQLITE_OK) {
+			printf("Failed to execute %s, error %s\n", sql2, sqlite3_errmsg(db));
+			goto fail;
+		}
+
+		sqlite3_step(stmt2);
+		sqlite3_finalize(stmt2);
+	}
+
+	sqlite3_stmt *stmt3;
+	const char *sql3 = insert_video2_sql;
+	ret = sqlite3_prepare_v2(db, sql3, -1, &stmt3, 0);
 	if (ret != SQLITE_OK) {
-		printf("Failed to execute %s, error %s\n", sql2, sqlite3_errmsg(db));
+		printf("Failed to execute %s, error %s\n", sql3, sqlite3_errmsg(db));
 		goto fail;
 	}
 
-	sqlite3_step(stmt2);
-	sqlite3_finalize(stmt2);
+	sqlite3_step(stmt3);
+	sqlite3_finalize(stmt3);
 
 fail:
 	return ret;
@@ -153,43 +288,12 @@ fail:
 
 static int sql_delete_video(sqlite3 *db, int64_t mrid)
 {
-	int ret = 0;
-	sqlite3_stmt *stmt, *stmt2;
-	const char *sql = delete_content_sql;
-	const char *sql2 = delete_content2_sql;
-
-	ret = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
-	if (ret != SQLITE_OK) {
-		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
-		goto fail;
-	}
-
-	ret = sqlite3_bind_int64(stmt, 1, mrid);
-	if (ret != SQLITE_OK) {
-		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
-		goto fail;
-	}
-
-	sqlite3_step(stmt);
-	sqlite3_finalize(stmt);
-
-	ret = sqlite3_prepare_v2(db, sql2, -1, &stmt2, 0);
-	if (ret != SQLITE_OK) {
-		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
-		goto fail;
-	}
-
-	ret = sqlite3_bind_int64(stmt2, 1, mrid);
-	if (ret != SQLITE_OK) {
-		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
-		goto fail;
-	}
-
-	sqlite3_step(stmt2);
-	sqlite3_finalize(stmt2);
+	sql_exec_i64(db, delete_content_sql, mrid);
+	sql_exec_i64(db, delete_content2_sql, mrid);
+	sql_exec_i64(db, delete_contentitem_sql, mrid);
 
 fail:
-	return ret;
+	return 0;
 }
 
 static char *concat_path(const char *parent, const char *child) {
@@ -207,7 +311,7 @@ static char *concat_path(const char *parent, const char *child) {
 	return new_path;
 }
 
-static int add_videos_int(sqlite3 *db, const char *dir, int added)
+static int add_videos_int(sqlite3 *db, const char *dir, const char *list, int added)
 {
 	SceUID did;
 	SceIoDirent dinfo;
@@ -224,7 +328,12 @@ static int add_videos_int(sqlite3 *db, const char *dir, int added)
 		new_path = concat_path(dir, dinfo.d_name);
 		if (SCE_S_ISDIR(dinfo.d_stat.st_mode)) {
 			// recursion, ewww
-			added = add_videos_int(db, new_path, added);
+			if (list) {
+				added = add_videos_int(db, new_path, list, added);
+			}
+			else {
+				added = add_videos_int(db, new_path, dinfo.d_name, added);
+			}
 		}
 		else {
 			int l = strlen(dinfo.d_name);
@@ -234,7 +343,12 @@ static int add_videos_int(sqlite3 *db, const char *dir, int added)
 				int c = sql_get_count(db, select_content_count_sql, new_path);
 				if (c == 0) {
 					uint32_t dur = get_mp4_duration(new_path);
-					sql_insert_video(db, new_path, dinfo.d_stat.st_size, dur);
+					if (list) {
+						sql_insert_video(db, new_path, dinfo.d_stat.st_size, dur, list);
+					}
+					else {
+						sql_insert_video(db, new_path, dinfo.d_stat.st_size, dur, "_root");
+					}
 					added++;
 					printf("Added %d videos\r", added);
 				}
@@ -260,7 +374,7 @@ void add_videos(const char *dir)
 	}
 
 	sqlite3_exec(db, "BEGIN", 0, 0, 0);
-	added = add_videos_int(db, dir, 0);
+	added = add_videos_int(db, dir, NULL, 0);
 	sqlite3_exec(db, "COMMIT", 0, 0, 0);
 	printf("Added %d videos\n", added);
 fail:
@@ -377,7 +491,7 @@ void clean_videos(void)
 		goto fail;
 	}
 	while (sqlite3_step(stmt) == SQLITE_ROW) {
-		int64_t mrid = sqlite3_column_int(stmt, 0);
+		int64_t mrid = sqlite3_column_int64(stmt, 0);
 		const char *path = sqlite3_column_text(stmt, 1);
 		const char *title = sqlite3_column_text(stmt, 2);
 
@@ -391,6 +505,7 @@ void clean_videos(void)
 			fclose(testfile);
 		}
 	}
+	sql_exec(db, delete_empty_contentlist_sql);
 fail:
 	if (stmt) {
 		sqlite3_finalize(stmt);
@@ -410,31 +525,12 @@ void empty_videos(void)
 		goto fail;
 	}
 
-	sqlite3_stmt *stmt;
-	const char *sql = delete_all_sql;
-	ret = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
-	if (ret != SQLITE_OK) {
-		printf("Failed to execute %s, error %s\n", sql, sqlite3_errmsg(db));
-		goto fail;
-	}
-	sqlite3_step(stmt);
-
-	sqlite3_stmt *stmt2;
-	const char *sql2 = delete_all2_sql;
-	ret = sqlite3_prepare_v2(db, sql2, -1, &stmt2, 0);
-	if (ret != SQLITE_OK) {
-		printf("Failed to execute %s, error %s\n", sql2, sqlite3_errmsg(db));
-		goto fail;
-	}
-	sqlite3_step(stmt2);
+	sql_exec(db, delete_all_sql);
+	sql_exec(db, delete_all2_sql);
+	sql_exec(db, delete_all_contentlist_sql );
+	sql_exec(db, delete_all_contentitem_sql );
 
 fail:
-	if (stmt) {
-		sqlite3_finalize(stmt);
-	}
-	if (stmt2) {
-		sqlite3_finalize(stmt2);
-	}
 	sqlite3_close(db);
 }
 
